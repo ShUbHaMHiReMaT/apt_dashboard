@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>APT Intelligence Dashboard</title>
+    <style>
+        body {
+            font-family: Arial;
+            background: #0f172a;
+            color: white;
+            padding: 40px;
+        }
+        input {
+            padding: 12px;
+            width: 320px;
+            font-size: 16px;
+        }
+        button {
+            padding: 12px 20px;
+            background: #22c55e;
+            border: none;
+            color: white;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+        .card {
+            background: #020617;
+            padding: 20px;
+            margin-top: 20px;
+            border-radius: 10px;
+        }
+        .score {
+            font-size: 22px;
+            font-weight: bold;
+        }
+        .benign { color: #22c55e; }
+        .malicious { color: #ef4444; }
+        .unknown { color: #facc15; }
+    </style>
+</head>
+<body>
+
+<h1>APT Intelligence Dashboard</h1>
+
+<input id="ioc" placeholder="Enter IP, domain, hash, actor">
+<button onclick="search()">Analyze</button>
+
+<div id="output"></div>
+
+<script>
+async function search() {
+
+    let ioc = document.getElementById("ioc").value.trim();
+    if (!ioc) return;
+
+    let url = window.location.origin + "/search?ioc=" + encodeURIComponent(ioc);
+    let res = await fetch(url);
+
+    if (!res.ok) {
+        document.getElementById("output").innerHTML =
+            "<div class='card'>Backend error</div>";
+        return;
+    }
+
+    let data = await res.json();
+    let a = data.analysis || {};
+
+    // color mapping from your matrix
+    const colors = {
+        "Very Low":"#22c55e",
+        "Low":"#84cc16",
+        "Medium":"#facc15",
+        "High":"#f97316",
+        "Very High":"#ef4444"
+    };
+
+    let color = colors[a.risk_level] || "#facc15";
+
+    document.getElementById("output").innerHTML = `
+        <div class="card">
+            <h2>IP: ${a.ip || ioc}</h2>
+
+            <p><b>Country:</b> ${a.country || "Unknown"}</p>
+            <p><b>VT Malicious Score:</b> ${a.vt_malicious_score ?? 0}</p>
+            <p><b>IPQS Fraud Score:</b> ${a.ipqs_fraud_score ?? 0}</p>
+            <p><b>Proxy:</b> ${a.proxy}</p>
+            <p><b>VPN:</b> ${a.vpn}</p>
+
+            <p class="score" style="color:${color}">
+                Final Risk Level: ${a.risk_level || "Unknown"}
+            </p>
+        </div>
+    `;
+}
+</script>
+
+</body>
+</html>
