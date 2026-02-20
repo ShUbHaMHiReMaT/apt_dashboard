@@ -1,64 +1,40 @@
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
-
+from fastapi import FastAPI, Query
 from backend.sources.virustotal import search_vt
-from backend.sources.otx import search_otx
-from backend.sources.threatfox import search_threatfox
 from backend.ipqs import lookup_ipqs
-from backend.attribution import analyze_results
-from backend.cache import get_cached, set_cache   # caching layer
+from backend.attribution import get_attribution, calculate_risk_matrix
 
 app = FastAPI()
 
-# Serve frontend folder
-app.mount("/static", StaticFiles(directory="frontend"), name="static")
-
-
-@app.get("/")
-def home():
-    return {"message": "APT Intelligence API running"}
-
-
-@app.get("/dashboard")
-def dashboard():
-    return FileResponse("frontend/index.html")
-
-
 @app.get("/search")
-async def search_ioc(ioc: str):
+async def search_ioc(ioc: str = Query(...)):
+    vt_data = await search_vt(ioc)
+    ipqs_data = await lookup_ipqs(ioc)
+    
+    # Extract VT stats
+    vt_attr = vt_data.get("data", {}).get("attributes", {})
+    vt_malicious = vt_attr.get("last_analysis_stats", {}).get("malicious", 0)
+    
+    # Extract IPQS stats
+    fraud_score = ipqs_data.get("fraud_score", 0)
+    proxy = ipqs_data.get("proxy", False)
+    vpn = ipqs_data.get("vpn", False)
+    
+    # Fix: Ensure country is captured from the best available source
+    country = ipqs_data.get("country") or vt_attr.get("country") or "N/A"
 
-    # --------------------
-    # 1. check cache first
-    # --------------------
-    cached = get_cached(ioc)
-    if cached:
-        return cached
+    # Back-tracing Logic
+    apt_group = get_attribution(ioc, vt_data)
+    verdict, color = calculate_risk_matrix(vt_malicious, fraud_score, proxy, vpn)
 
-    # --------------------
-    # 2. gather intel
-    # --------------------
-    results = {}
-
-    results["virustotal"] = await search_vt(ioc)
-    results["otx"] = await search_otx(ioc)
-    results["threatfox"] = await search_threatfox(ioc)
-    results["ipqs"] = await lookup_ipqs(ioc)
-
-    # --------------------
-    # 3. run attribution
-    # --------------------
-    analysis = analyze_results(ioc, results)
-
-    response = {
-        "ioc": ioc,
-        "analysis": analysis,
-        "raw_results": results
+    return {
+        "ip_address": ioc,
+        "apt_group": apt_group,
+        "display_color": color,
+        "results": {
+            "1. country": country,
+            "2. malicious score (vt)": f"{vt_malicious} Engines",
+            "3. ipqs score": f"{fraud_score} ({verdict})",
+            "4. proxy from ipqs": "YES" if proxy else "NO",
+            "5. vpn non vpn": "VPN" if vpn else "NON-VPN"
+        }
     }
-
-    # --------------------
-    # 4. save to cache
-    # --------------------
-    set_cache(ioc, response)
-
-    return response

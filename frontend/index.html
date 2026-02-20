@@ -1,97 +1,155 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>APT Intelligence Dashboard</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>APT Threat Intelligence Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body {
-            font-family: Arial;
-            background: #0f172a;
-            color: white;
-            padding: 40px;
+        .result-card {
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            border-left-width: 12px;
         }
-        input {
-            padding: 12px;
-            width: 320px;
-            font-size: 16px;
+        .status-badge {
+            padding: 6px 16px;
+            border-radius: 8px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
-        button {
-            padding: 12px 20px;
-            background: #22c55e;
-            border: none;
-            color: white;
-            cursor: pointer;
-            margin-left: 10px;
+        .apt-glow {
+            text-shadow: 0 0 10px rgba(96, 165, 250, 0.5);
         }
-        .card {
-            background: #020617;
-            padding: 20px;
-            margin-top: 20px;
-            border-radius: 10px;
-        }
-        .score {
-            font-size: 22px;
-            font-weight: bold;
-        }
-        .benign { color: #22c55e; }
-        .malicious { color: #ef4444; }
-        .unknown { color: #facc15; }
     </style>
 </head>
-<body>
+<body class="bg-[#0f172a] text-slate-200 min-h-screen font-sans">
 
-<h1>APT Intelligence Dashboard</h1>
+    <div class="container mx-auto px-4 py-12">
+        <header class="text-center mb-12">
+            <h1 class="text-5xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-blue-500 via-cyan-400 to-emerald-400 mb-4 uppercase">
+                APT Infrastructure Tracer
+            </h1>
+            <p class="text-slate-500 text-lg">Reverse IOC Analysis & Attribution Matrix</p>
+        </header>
 
-<input id="ioc" placeholder="Enter IP, domain, hash, actor">
-<button onclick="search()">Analyze</button>
-
-<div id="output"></div>
-
-<script>
-async function search() {
-
-    let ioc = document.getElementById("ioc").value.trim();
-    if (!ioc) return;
-
-    let url = window.location.origin + "/search?ioc=" + encodeURIComponent(ioc);
-    let res = await fetch(url);
-
-    if (!res.ok) {
-        document.getElementById("output").innerHTML =
-            "<div class='card'>Backend error</div>";
-        return;
-    }
-
-    let data = await res.json();
-    let a = data.analysis || {};
-
-    // color mapping from your matrix
-    const colors = {
-        "Very Low":"#22c55e",
-        "Low":"#84cc16",
-        "Medium":"#facc15",
-        "High":"#f97316",
-        "Very High":"#ef4444"
-    };
-
-    let color = colors[a.risk_level] || "#facc15";
-
-    document.getElementById("output").innerHTML = `
-        <div class="card">
-            <h2>IP: ${a.ip || ioc}</h2>
-
-            <p><b>Country:</b> ${a.country || "Unknown"}</p>
-            <p><b>VT Malicious Score:</b> ${a.vt_malicious_score ?? 0}</p>
-            <p><b>IPQS Fraud Score:</b> ${a.ipqs_fraud_score ?? 0}</p>
-            <p><b>Proxy:</b> ${a.proxy}</p>
-            <p><b>VPN:</b> ${a.vpn}</p>
-
-            <p class="score" style="color:${color}">
-                Final Risk Level: ${a.risk_level || "Unknown"}
-            </p>
+        <div class="max-w-3xl mx-auto bg-slate-800/50 p-2 rounded-2xl backdrop-blur-sm border border-slate-700 shadow-2xl mb-10">
+            <div class="flex gap-2">
+                <input type="text" id="ipInput" placeholder="Enter IP Address for Trace..." 
+                       class="flex-1 bg-slate-900 border-none rounded-xl px-6 py-4 text-lg focus:ring-2 focus:ring-blue-500 transition-all outline-none">
+                <button onclick="analyzeIP()" id="searchBtn"
+                        class="bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-all">
+                    Trace IOC
+                </button>
+            </div>
         </div>
-    `;
-}
-</script>
 
+        <div id="resultsContainer" class="max-w-4xl mx-auto hidden">
+            
+            <div class="bg-slate-800 rounded-t-2xl p-6 border-x border-t border-slate-700 flex justify-between items-center">
+                <div>
+                    <span class="text-xs font-bold text-blue-400 uppercase tracking-widest">Attributed Actor</span>
+                    <h2 class="text-3xl font-black apt-glow text-white" id="res_apt">Tracing...</h2>
+                </div>
+                <div id="riskBadge" class="status-badge text-white shadow-lg">Checking</div>
+            </div>
+
+            <div id="resultCard" class="bg-slate-900 rounded-b-2xl p-8 shadow-2xl border-x border-b border-slate-700 result-card">
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div class="space-y-6">
+                        <div>
+                            <p class="text-slate-500 text-sm uppercase font-bold mb-1">Target IOC</p>
+                            <p class="text-2xl font-mono font-bold text-white" id="displayIP">0.0.0.0</p>
+                        </div>
+                        
+                        <div class="space-y-4">
+                            <div class="flex items-center">
+                                <span class="bg-slate-800 text-blue-400 w-8 h-8 rounded-full flex items-center justify-center font-bold mr-3">1</span>
+                                <span class="text-slate-400 mr-2">Origin Country:</span>
+                                <span id="res_country" class="font-bold text-white uppercase">-</span>
+                            </div>
+                            <div class="flex items-center">
+                                <span class="bg-slate-800 text-blue-400 w-8 h-8 rounded-full flex items-center justify-center font-bold mr-3">2</span>
+                                <span class="text-slate-400 mr-2">VT Malicious Score:</span>
+                                <span id="res_vt" class="font-bold text-white">-</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4 bg-slate-800/30 p-5 rounded-xl border border-slate-700/50">
+                        <div class="flex items-center">
+                            <span class="bg-slate-800 text-blue-400 w-8 h-8 rounded-full flex items-center justify-center font-bold mr-3">3</span>
+                            <span class="text-slate-400 mr-2">IPQS Score:</span>
+                            <span id="res_ipqs" class="font-bold text-white">-</span>
+                        </div>
+                        <div class="flex items-center">
+                            <span class="bg-slate-800 text-blue-400 w-8 h-8 rounded-full flex items-center justify-center font-bold mr-3">4</span>
+                            <span class="text-slate-400 mr-2">Proxy Detection:</span>
+                            <span id="res_proxy" class="font-bold text-white">-</span>
+                        </div>
+                        <div class="flex items-center">
+                            <span class="bg-slate-800 text-blue-400 w-8 h-8 rounded-full flex items-center justify-center font-bold mr-3">5</span>
+                            <span class="text-slate-400 mr-2">Connection Type:</span>
+                            <span id="res_vpn" class="font-bold text-white">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-8 pt-6 border-t border-slate-800 text-center">
+                    <p class="text-slate-500 text-sm italic">
+                        * Intelligence correlation based on active APT infrastructure databases.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function analyzeIP() {
+    const ip = document.getElementById('ipInput').value;
+    const btn = document.getElementById('searchBtn');
+    const container = document.getElementById('resultsContainer');
+    
+    if(!ip) return alert("Please enter an IP address");
+
+    btn.innerText = "Tracing Group...";
+    btn.disabled = true;
+
+    try {
+        const response = await fetch(`/search?ioc=${ip}`);
+        const data = await response.json();
+
+        // 1. Update Core Info
+        document.getElementById('res_apt').innerText = data.apt_group;
+        document.getElementById('displayIP').innerText = data.ip_address;
+
+        // 2. Update 5-Point Analysis (Keys must match backend exactly)
+        document.getElementById('res_country').innerText = data.results["1. country"];
+        document.getElementById('res_vt').innerText = data.results["2. malicious score (vt)"];
+        document.getElementById('res_ipqs').innerText = data.results["3. ipqs score"];
+        document.getElementById('res_proxy').innerText = data.results["4. proxy from ipqs"];
+        document.getElementById('res_vpn').innerText = data.results["5. vpn non vpn"];
+
+        // 3. UI Matrix Coloring
+        const card = document.getElementById('resultCard');
+        const badge = document.getElementById('riskBadge');
+        
+        card.style.borderLeftColor = data.display_color;
+        badge.style.backgroundColor = data.display_color;
+        
+        // Correctly parse "FraudScore (RISK_LEVEL)" to just "RISK_LEVEL"
+        const riskParts = data.results["3. ipqs score"].split('(');
+        badge.innerText = riskParts.length > 1 ? riskParts[1].replace(')', '') : "N/A";
+
+        container.classList.remove('hidden');
+    } catch (err) {
+        console.error(err);
+        alert("Intelligence retrieval failed.");
+    } finally {
+        btn.innerText = "Trace IOC";
+        btn.disabled = false;
+    }
+}
+    </script>
 </body>
 </html>
